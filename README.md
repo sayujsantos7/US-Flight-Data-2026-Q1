@@ -9,9 +9,9 @@ An end-to-end analytics project covering **1.67M+ US commercial flights** (Janua
 
 ## Dashboard Preview
 
-![Page 1: Executive overview](docs/screenshots/page1_overview.png)
-![Page 2: Airline performance](docs/screenshots/page2_performance.png)
-![Page 3: Root cause analysis](docs/screenshots/page3_root_cause.png)
+![Page 1: Executive overview](screenshots/page1_overview.png)
+![Page 2: Airline performance](screenshots/page2_performance.png)
+![Page 3: Root cause analysis](screenshots/page3_root_cause.png)
 
 ---
 
