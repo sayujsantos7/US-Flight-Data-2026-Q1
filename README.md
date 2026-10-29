@@ -19,9 +19,9 @@ An end-to-end analytics project covering **1.67M+ US commercial flights** (Janua
 
 * **Network reliability:** Across **1,671,348 flights**, on-time arrival was **79.03%**, which is **1.21 points below an 80% reference target**. The average arrival delay was **17.25 minutes**.
 * **Delays compound:** Carrier-caused delays (**35.93%**) and late-arriving aircraft (**37.40%**) together made up **73.3%** of all delay minutes (over 19.2M of 26.27M). Late-aircraft delay is itself a knock-on effect of earlier delays, so most delay minutes trace back to how operations run on the day, not to external factors.
-* **Weather causes cancellations more than delays:** Weather accounted for only **7.07%** of delay minutes but for most cancellations (over 40,000 flights). This suggests that during severe winter storms, airlines tend to cancel flights outright instead of holding them.
+* **Weather causes cancellations more than delays:** Weather accounted for only **7.07%** of delay minutes but for about three-quarters of all cancellations (over 40,000 flights). This suggests that during severe winter storms, airlines tend to cancel flights outright instead of holding them.
 * **In-flight recovery varies by carrier:** On average, **Southwest (-1.99 min)** and **American (-0.84 min)** arrived with less delay than they departed with, while **Republic (+1.74 min)** and **Envoy (+1.11 min)** lost additional time en route.
-* **Largest delay concentration:** **Chicago (ORD/MDW)** accounted for over **2.13M delay minutes**. Regional feeder carriers, led by **SkyWest (~593K delay minutes)**, were among the largest sources of delay in the root-cause decomposition.
+* **Largest delay concentration:** Flights departing **Chicago (ORD/MDW)** accumulated over **2.13M delay minutes**, the most of any city. Within Chicago, **SkyWest** alone accounted for about **593K** delay minutes, followed by **United (~398K)** and **American (~318K)**.
 
 ---
 
@@ -53,7 +53,7 @@ Power BI model: relationships + DAX measures
 
 ```
 ├── sql/
-│   └── us_flight_data.sql        # Staging, cleaning, dimensions and indexes
+│   └── us_flight_data.sql        # Staging, cleaning, indexes, dimensions, validation and analysis queries
 ├── power_bi/
 │   └── dax_measures.dax          # DAX measures used in the report
 ├── docs/
@@ -133,7 +133,7 @@ FROM flights_raw;
 ### 3. Dimensions and indexes
 * `dim_airports`: distinct origin and destination airports in one table.
 * `dim_date`: a daily calendar generated with `generate_series`, with calendar flags.
-* `carriers`: a lookup for 20 carriers, classified as **Mainline**, **Low-cost** or **Regional**.
+* `carriers`: a lookup for 20 carriers, classified as **Mainline**, **Low-cost** or **Regional** (13 appear in the report).
 * B-tree indexes on the date, carrier, origin and destination columns to support joins and filtering in the SQL scripts:
 
 ```sql
@@ -142,6 +142,24 @@ CREATE INDEX idx_flights_carrier ON flights_clean(carrier);
 CREATE INDEX idx_flights_origin ON flights_clean(origin);
 CREATE INDEX idx_flights_dest ON flights_clean(dest);
 ```
+
+### 4. Data validation
+The script includes checks that were run before any analysis:
+* **Row counts and dates:** total rows against the three monthly files, and a month-by-month check that dates parsed correctly.
+* **No silent NULLs:** a check that the date, carrier and origin columns were not accidentally emptied by the cleaning step.
+* **Flag consistency:** `arr_del15` agrees with `arr_delay >= 15` for every non-cancelled, non-diverted flight.
+* **Range checks:** departure hours fall between 0 and 23, and cancellation codes are only A, B, C or D.
+* **Cause reconciliation:** for each delayed flight, the five cause columns (carrier, weather, NAS, security, late aircraft) are compared with the arrival delay. The small unreconciled remainder is stored in `unattributed_delay`, and its share of total delay minutes is calculated so it can be shown to be negligible.
+* **Carrier coverage:** a check that every carrier code in the data exists in the `carriers` lookup.
+
+---
+
+### 4. Validation
+The script also contains data quality checks that were run before building the dashboard:
+* **Row counts and dates:** monthly row counts and minimum and maximum dates, to confirm all three months loaded and no dates leaked across months.
+* **NULL and range checks:** no flight is missing a date, carrier or origin after cleaning, departure hours fall between 0 and 23, and cancellation codes are only A, B, C or D.
+* **Flag consistency:** `arr_del15` is tested against `arr_delay >= 15` for flights that operated.
+* **Cause reconciliation:** the five delay-cause columns add up to the arrival delay for **350,737 of 350,757 delayed flights (99.994%)**. The remaining 20 flights have all cause columns recorded as 0, so their delay is held in a separate `unattributed_delay` column (see query 5.11 for the exact share of total delay minutes).
 
 ---
 
@@ -215,9 +233,9 @@ The full set of measures is in `power_bi/dax_measures.dax`.
 
 ### Page 1: Executive Overview
 * **KPI cards:** Total Flights (1.67M), On-Time Arrival % (79.03%, with a variance label against the 80% target), Average Arrival Delay (17.25 min) and Cancellation Rate (3.29%).
-* **Daily timeline:** on-time arrival % against daily cancellations, showing the late-January winter storm, when cancellations rose toward 10,000 flights a day.
+* **Daily timeline:** on-time arrival % against daily cancellations, showing the late-January winter storm, when cancellations peaked at roughly 9,000 flights a day, with smaller spikes in late February and March.
 * **Carrier ranking:** on-time arrival % by airline against the 80% target.
-* **Hourly profile:** average delay rises from 10.5 minutes at 06:00 to a peak of 24.3 minutes between 18:00 and 21:00.
+* **Hourly profile:** average departure delay is lowest (about 10.5 minutes) from 06:00 to 07:00 and builds through the day to about 24 minutes between 19:00 and 21:00.
 
 ### Page 2: Airline Performance
 * **Recovery scatter plot:** average departure delay against average arrival delay. Points below the diagonal are carriers that make up time in the air.
@@ -227,11 +245,11 @@ The full set of measures is in `power_bi/dax_measures.dax`.
 ### Page 3: Root Cause Analysis
 * **Delay attribution:** Late Aircraft (37.40%), Carrier (35.93%), NAS / air traffic control (19.42%), Weather (7.07%) and Security (0.18%).
 * **Cancellation reasons:** ranked by cause, with severe winter weather the largest.
-* **Decomposition tree:** total delay minutes broken down by carrier type, carrier name and city.
+* **Decomposition tree:** total delay minutes broken down by origin city and then carrier, shown here expanded for Chicago.
 
 ---
 
-## Carrier Benchmark (selected carriers)
+## Carrier Benchmark (13 carriers in the report)
 
 | Carrier | Category | Flight Share % | On-Time Arrival % | Avg Dep Delay (min) | In-Flight Recovery (min) | Cancellation Rate |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
@@ -248,6 +266,14 @@ The full set of measures is in `power_bi/dax_measures.dax`.
 | Frontier Airlines | Low-cost | 3.03% | 73.29% | 23.19 | +0.29 | 2.78% |
 | JetBlue Airways | Mainline | 3.43% | 68.88% | 23.28 | +1.01 | 5.25% |
 | Spirit Airlines | Low-cost | 2.18% | 64.63% | 27.65 | -0.17 | 8.58% |
+
+---
+
+## Notes and Limitations
+
+* The data covers **January to March 2026 only**. Winter storms, including the late-January event, are part of this quarter, so the weather findings may not hold for the rest of the year.
+* Delay causes are the categories recorded in the BTS data. Late-aircraft delay is itself a knock-on effect of earlier delays, so it overlaps with how operations run on the day.
+* Averages for low-volume hours, such as the Sunday 03:00 slot in the heatmap, rest on fewer flights and should be read with care.
 
 ---
 
