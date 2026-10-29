@@ -2,8 +2,8 @@
 
 An end-to-end analytics project covering **1.67M+ US commercial flights** (January to March 2026). Raw Bureau of Transportation Statistics (BTS) flight records are cleaned and modelled as a **star schema in PostgreSQL**, then analysed in a **3-page Power BI report** to study delay propagation, in-flight time recovery and cancellation causes.
 
-**Tools:** PostgreSQL, SQL, Power BI, DAX, Data Modelling
-**Data source:** US Bureau of Transportation Statistics (BTS), TranStats "Reporting Carrier On-Time Performance" (Jan, Feb, Mar 2026)
+**Tools:** PostgreSQL, SQL, Power BI, DAX, Data Modelling  
+**Data source:** US Bureau of Transportation Statistics (BTS), [TranStats "Reporting Carrier On-Time Performance"](https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FGJ&QO_fu146_anzr=b0-gvzr) (Jan, Feb, Mar 2026)
 
 ---
 
@@ -61,7 +61,7 @@ Power BI model: relationships + DAX measures
 └── README.md
 ```
 
-The raw BTS files are not included because of their size. Download them from the BTS TranStats site (see Data source above).
+The raw BTS files are not tracked in this repository due to file size constraints (~1.67M records). Download them directly from the [BTS TranStats portal](https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FGJ&QO_fu146_anzr=b0-gvzr) (see [How to Reproduce](#how-to-reproduce) below for field mapping instructions).
 
 ---
 
@@ -83,7 +83,7 @@ CREATE TABLE flights_raw (
 );
 
 COPY flights_raw FROM 'C:/.../T_ONTIME_REPORTING JAN.csv' WITH (FORMAT CSV, HEADER TRUE);
-COPY flights_raw FROM 'C:/.../T_ONTIME_REPORTING FEB.csv' WITH (FORMAT CSV, HEADER TRUE);
+COPY flights_raw FROM 'C:/.../T_ONTIME_REPORTING FEB.csv' WITH (FORMAT BASE CSV, HEADER TRUE);
 COPY flights_raw FROM 'C:/.../T_ONTIME_REPORTING MAR.csv' WITH (FORMAT CSV, HEADER TRUE);
 ```
 
@@ -145,21 +145,12 @@ CREATE INDEX idx_flights_dest ON flights_clean(dest);
 
 ### 4. Data validation
 The script includes checks that were run before any analysis:
-* **Row counts and dates:** total rows against the three monthly files, and a month-by-month check that dates parsed correctly.
-* **No silent NULLs:** a check that the date, carrier and origin columns were not accidentally emptied by the cleaning step.
+* **Row counts and dates:** monthly row counts and minimum and maximum dates, confirming all three months loaded without date leakage.
+* **No silent NULLs:** verifies date, carrier, and origin columns were not dropped during cleaning.
 * **Flag consistency:** `arr_del15` agrees with `arr_delay >= 15` for every non-cancelled, non-diverted flight.
-* **Range checks:** departure hours fall between 0 and 23, and cancellation codes are only A, B, C or D.
-* **Cause reconciliation:** for each delayed flight, the five cause columns (carrier, weather, NAS, security, late aircraft) are compared with the arrival delay. The small unreconciled remainder is stored in `unattributed_delay`, and its share of total delay minutes is calculated so it can be shown to be negligible.
-* **Carrier coverage:** a check that every carrier code in the data exists in the `carriers` lookup.
-
----
-
-### 4. Validation
-The script also contains data quality checks that were run before building the dashboard:
-* **Row counts and dates:** monthly row counts and minimum and maximum dates, to confirm all three months loaded and no dates leaked across months.
-* **NULL and range checks:** no flight is missing a date, carrier or origin after cleaning, departure hours fall between 0 and 23, and cancellation codes are only A, B, C or D.
-* **Flag consistency:** `arr_del15` is tested against `arr_delay >= 15` for flights that operated.
-* **Cause reconciliation:** the five delay-cause columns add up to the arrival delay for **350,737 of 350,757 delayed flights (99.994%)**. The remaining 20 flights have all cause columns recorded as 0, so their delay is held in a separate `unattributed_delay` column (see query 5.11 for the exact share of total delay minutes).
+* **Range checks:** departure hours fall between 0 and 23, and cancellation codes are restricted to A, B, C, or D.
+* **Cause reconciliation:** the five delay-cause columns match arrival delay for **350,737 of 350,757 delayed flights (99.994%)**. The remaining 20 flights have all causes recorded as 0, stored in `unattributed_delay`.
+* **Carrier coverage:** verifies every carrier code exists in the `carriers` lookup.
 
 ---
 
@@ -281,13 +272,22 @@ The full set of measures is in `power_bi/dax_measures.dax`.
 
 **Requirements:** PostgreSQL 14 or newer, Power BI Desktop (November 2023 release or newer), and the BTS Q1 2026 CSV files.
 
-1. **Get the data.** Download the Jan, Feb and Mar 2026 files from BTS TranStats (Reporting Carrier On-Time Performance) with the columns used in `flights_raw`.
-2. **Create the database and run the SQL.** Update the file paths in the `COPY` commands to match where you saved the CSV files, then run:
+1. **Download the raw data:**
+   * Navigate to the [BTS TranStats Reporting Carrier On-Time Performance Download Interface](https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FGJ&QO_fu146_anzr=b0-gvzr).
+   * Download individual monthly files for **January, February, and March 2026**.
+   * Make sure to select all fields corresponding to `flights_raw`:
+     * **Time & Date:** `DayOfWeek`, `FlightDate`
+     * **Airline:** `Reporting_Airline` (mapped to `op_unique_carrier`)
+     * **Origin & Destination:** `Origin`, `OriginCityName`, `OriginState`, `Dest`, `DestCityName`, `DestState`
+     * **Departure & Arrival:** `CRSDepTime`, `DepTime`, `DepDelay`, `DepDelayMinutes`, `DepDel15`, `CRSArrTime`, `ArrTime`, `ArrDelay`, `ArrDelayMinutes`, `ArrDel15`
+     * **Status & Metrics:** `Cancelled`, `CancellationCode`, `Diverted`, `Flights`, `Distance`
+     * **Cause Breakdown:** `CarrierDelay`, `WeatherDelay`, `NASDelay`, `SecurityDelay`, `LateAircraftDelay`
+2. **Create the database and run the SQL:** Update the file paths in the `COPY` commands to match where you saved your downloaded CSV files, then run:
    ```bash
    git clone https://github.com/sayujsantos7/US-Flight-Data-2026-Q1.git
    cd US-Flight-Data-2026-Q1
    psql -U postgres -d flight_db -f sql/us_flight_data.sql
    ```
-3. **Connect Power BI.** Open Power BI Desktop, choose **Get Data > PostgreSQL database**, enter your server (for example `localhost:5432`) and database (`flight_db`), and select **Import** mode.
+3. **Connect Power BI:** Open Power BI Desktop, choose **Get Data > PostgreSQL database**, enter your server (for example `localhost:5432`) and database (`flight_db`), and select **Import** mode.
 4. **Load the tables:** `flights_clean`, `dim_date`, `dim_airports` and `carriers`.
 5. **Check the relationships** against the data model above, then add the measures from `power_bi/dax_measures.dax` to a measures table.
